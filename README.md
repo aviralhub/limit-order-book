@@ -16,7 +16,7 @@ cmake --build build
 ctest --test-dir build
 ```
 
-Debug builds run with ASan and UBSan.
+Debug builds run with ASan and UBSan. CI builds and tests both Debug and Release on every push.
 
 ## Layout
 
