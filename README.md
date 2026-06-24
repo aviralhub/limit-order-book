@@ -18,10 +18,32 @@ ctest --test-dir build
 
 Debug builds run with ASan and UBSan. CI builds and tests both Debug and Release on every push.
 
+## Benchmark
+
+`build/bench/bench_order_book` fills the book to 100k orders, then times 1M adds, cancels and
+modifies with `rdtsc`. Prices are normally distributed around 30000 ticks and the workload is
+generated from a fixed seed before the timed loop. i7-1255U, WSL2, GCC 15.2, `-O3 -march=native`:
+
+```
+100000 resting orders, 1000000 measured ops (45% add, 45% cancel, 10% modify)
+rdtsc 2.611 cycles/ns, timer overhead 20 cycles (included)
+1266313 ops/sec, 99583 orders left
+
+op           count     p50     p99   p99.9       max  (ns)
+add         449811     446    1257    4022   1127881
+cancel      450186     769    1853   17837    613486
+modify      100003     727    1660   16133    152341
+all        1000000     619    1680   15056   1127881
+```
+
+Cancel and modify both look the price level up in the map before doing anything. The run isn't
+pinned to a core, so these move by 20% or so between runs.
+
 ## Layout
 
 ```
 include/orderbook/   Order, OrderBook
 src/                 implementation
 tests/               Catch2 tests
+bench/               latency benchmark
 ```

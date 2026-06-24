@@ -21,3 +21,4 @@ target_include_directories(orderbook PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 enable_testing()
 add_subdirectory(tests)
+add_subdirectory(bench)
