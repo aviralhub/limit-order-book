@@ -40,9 +40,12 @@ private:
         std::list<Order> orders;
     };
 
+    // std::map doesn't move its nodes and a level is only erased once it's
+    // empty, so `level` can't dangle. side and price are only used for that erase.
     struct OrderLocation {
         Side side;
         Price price;
+        PriceLevel* level;
         std::list<Order>::iterator it;
     };
 

@@ -6,8 +6,8 @@ void OrderBook::addLimitOrder(const Order& order) {
     PriceLevel& level = (order.side == Side::Buy) ? bids_[order.price] : asks_[order.price];
     level.orders.push_back(order);
     level.total_quantity += order.quantity;
-    locations_.emplace(order.id,
-                       OrderLocation{order.side, order.price, std::prev(level.orders.end())});
+    locations_.emplace(order.id, OrderLocation{order.side, order.price, &level,
+                                               std::prev(level.orders.end())});
 }
 
 bool OrderBook::cancelOrder(OrderId id) {
@@ -17,7 +17,7 @@ bool OrderBook::cancelOrder(OrderId id) {
     }
     const OrderLocation& loc = loc_it->second;
 
-    PriceLevel& level = (loc.side == Side::Buy) ? bids_.at(loc.price) : asks_.at(loc.price);
+    PriceLevel& level = *loc.level;
     level.total_quantity -= loc.it->quantity;
     level.orders.erase(loc.it);
 
@@ -40,7 +40,7 @@ bool OrderBook::modifyOrder(OrderId id, Quantity new_quantity) {
     }
     const OrderLocation& loc = loc_it->second;
 
-    PriceLevel& level = (loc.side == Side::Buy) ? bids_.at(loc.price) : asks_.at(loc.price);
+    PriceLevel& level = *loc.level;
     level.total_quantity = level.total_quantity - loc.it->quantity + new_quantity;
     loc.it->quantity = new_quantity;
     return true;
