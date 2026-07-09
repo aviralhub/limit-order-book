@@ -5,9 +5,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <random>
 #include <vector>
 #include <x86intrin.h>
+
+#include <pthread.h>
+#include <sched.h>
 
 namespace {
 
@@ -19,6 +23,14 @@ using orderbook::Quantity;
 using orderbook::Side;
 
 using Clock = std::chrono::steady_clock;
+
+// keeps the scheduler from moving the thread between P and E cores mid run
+bool pin_to_core(int core) {
+    cpu_set_t set;
+    CPU_ZERO(&set);
+    CPU_SET(core, &set);
+    return pthread_setaffinity_np(pthread_self(), sizeof(set), &set) == 0;
+}
 
 constexpr std::size_t kRestingOrders = 100'000;
 constexpr std::size_t kWarmupOps = 100'000;
@@ -166,7 +178,9 @@ void run(OrderBook& book, const Op& op) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const int core = argc > 1 ? std::atoi(argv[1]) : -1;
+    const bool pinned = core >= 0 && pin_to_core(core);
     const double cycles_per_ns = calibrate_tsc();
     const std::uint64_t overhead = tsc_overhead();
 
@@ -229,6 +243,11 @@ int main() {
                 kRestingOrders, kMeasuredOps, kAddWeight, kCancelWeight, kModifyWeight);
     std::printf("rdtsc %.3f cycles/ns, timer overhead %llu cycles (included)\n", cycles_per_ns,
                 static_cast<unsigned long long>(overhead));
+    if (pinned) {
+        std::printf("pinned to core %d\n", core);
+    } else {
+        std::printf("not pinned\n");
+    }
     std::printf("%.0f ops/sec, %zu orders left\n\n", static_cast<double>(kMeasuredOps) / seconds,
                 book.size());
 

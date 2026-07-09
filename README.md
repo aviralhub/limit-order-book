@@ -38,8 +38,10 @@ all        1000000     407    1420    9054   1444089
 
 Before `OrderLocation` held a pointer to its level, cancel and modify looked the level up in the
 map first, and both were around 750 ns. Add got slower because `OrderLocation` is 8 bytes bigger and
-every add writes one into the hash map. The run isn't pinned to a core, so these move by 20% or so
-between runs.
+every add writes one into the hash map.
+
+`bench_order_book 10` pins the thread to core 10. Under WSL2 that didn't change much: runs still move
+by 20% or so either way, which is more than some of the differences being measured.
 
 ## Layout
 
