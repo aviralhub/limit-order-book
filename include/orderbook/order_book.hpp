@@ -3,8 +3,8 @@
 #include "orderbook/order.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
-#include <list>
 #include <map>
 #include <optional>
 #include <unordered_map>
@@ -15,6 +15,8 @@ namespace orderbook {
 // Resting orders only, nothing is matched here.
 class OrderBook {
 public:
+    explicit OrderBook(std::size_t capacity = 1 << 16);
+
     void addLimitOrder(const Order& order);
 
     // false if the id isn't in the book
@@ -35,9 +37,21 @@ public:
     std::size_t size() const { return locations_.size(); }
 
 private:
+    static constexpr std::int32_t kNil = -1;
+
+    // Links are indices into nodes_, not pointers, so the pool can grow.
+    // Price and side aren't stored here, the level and location already have them.
+    struct Node {
+        OrderId id;
+        Quantity quantity;
+        std::int32_t next = kNil;
+        std::int32_t prev = kNil;
+    };
+
     struct PriceLevel {
         Quantity total_quantity = 0;
-        std::list<Order> orders;
+        std::int32_t head = kNil;
+        std::int32_t tail = kNil;
     };
 
     // std::map doesn't move its nodes and a level is only erased once it's
@@ -46,16 +60,22 @@ private:
         Side side;
         Price price;
         PriceLevel* level;
-        std::list<Order>::iterator it;
+        std::int32_t node;
     };
 
     // begin() is the best price on both sides
     using Bids = std::map<Price, PriceLevel, std::greater<Price>>;
     using Asks = std::map<Price, PriceLevel, std::less<Price>>;
 
+    std::int32_t allocate(const Order& order);
+    void release(std::int32_t node);
+
     Bids bids_;
     Asks asks_;
     std::unordered_map<OrderId, OrderLocation> locations_;
+
+    std::vector<Node> nodes_;
+    std::vector<std::int32_t> free_list_;
 
     template <typename Levels>
     static std::optional<Price> bestPrice(const Levels& levels);
@@ -64,7 +84,7 @@ private:
     static Quantity quantityAtIn(const Levels& levels, Price price);
 
     template <typename Levels>
-    static std::vector<OrderId> ordersAtIn(const Levels& levels, Price price);
+    std::vector<OrderId> ordersAtIn(const Levels& levels, Price price) const;
 };
 
 } // namespace orderbook

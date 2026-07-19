@@ -2,7 +2,7 @@
 
 Limit order book in C++20 with price-time priority. One `std::map` of price levels per side, a FIFO
 queue of orders at each level, and a hash map from order id to where the order sits, so cancel and
-modify don't have to search for it.
+modify don't have to search for it. Orders live in one pooled vector, so adding one doesn't allocate.
 
 Prices are `int64_t` ticks, not doubles.
 
@@ -20,28 +20,33 @@ Debug builds run with ASan and UBSan. CI builds and tests both Debug and Release
 
 ## Benchmark
 
-`build/bench/bench_order_book` fills the book to 100k orders, then times 1M adds, cancels and
-modifies with `rdtsc`. Prices are normally distributed around 30000 ticks and the workload is
-generated from a fixed seed before the timed loop. i7-1255U, WSL2, GCC 15.2, `-O3 -march=native`:
+`build/bench/bench_order_book [core]` fills the book to 100k orders, then times 1M adds, cancels and
+modifies with `rdtsc`. Prices are normally distributed around 30000 ticks, and the workload comes
+from a fixed seed and is generated before the timed loop. i7-1255U, WSL2, GCC 15.2,
+`-O3 -march=native`, pinned to core 10.
 
-```
-100000 resting orders, 1000000 measured ops (45% add, 45% cancel, 10% modify)
-rdtsc 2.611 cycles/ns, timer overhead 20 cycles (included)
-1585946 ops/sec, 99583 orders left
+Medians of 20 runs of each version, run alternately, in ns:
 
-op           count     p50     p99   p99.9       max  (ns)
-add         449811     530    1345   12097    883985
-cancel      450186     183    1524    3871   1435885
-modify      100003       9     500    1030   1444089
-all        1000000     407    1420    9054   1444089
-```
+| | v1 list | v2 level pointer | v3 pool |
+|---|---:|---:|---:|
+| add p50 | 367 | 431 | 341 |
+| cancel p50 | 645 | 81 | 291 |
+| modify p50 | 603 | 9 | 9 |
+| all p50 | 516 | 332 | 298 |
+| all p99 | 1459 | 1211 | 1116 |
+| all p99.9 | 11895 | 4839 | 2732 |
 
-Before `OrderLocation` held a pointer to its level, cancel and modify looked the level up in the
-map first, and both were around 750 ns. Add got slower because `OrderLocation` is 8 bytes bigger and
-every add writes one into the hash map.
+v1 looked the level up in the map on every cancel and modify. v2 keeps a pointer to the level
+instead, which made add slower because every add writes a bigger entry into the hash map.
 
-`bench_order_book 10` pins the thread to core 10. Under WSL2 that didn't change much: runs still move
-by 20% or so either way, which is more than some of the differences being measured.
+v3 replaces the `std::list` at each level with one vector of nodes linked by index, plus a free list,
+so add doesn't allocate anymore. Cancel is slower than in v2. v2's cancel p50 jumps between 18 and
+400 ns from run to run, while v3's stays close to 290, probably because unlinking now touches
+neighbours spread through a large array instead of heap nodes that were freed a moment ago. The
+p99.9 is what improved most, and that's the reason for keeping it.
+
+Numbers move by 20% or more between sessions, so only runs from the same session are compared.
+Pinning to a core didn't change much under WSL2.
 
 ## Layout
 

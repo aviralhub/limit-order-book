@@ -25,5 +25,22 @@ level in the map by price before doing their O(1) work. Now it also holds a `Pri
 safe because `std::map` never moves its nodes, and a level is only erased when it's empty, so no
 order can still point at it. The map is only touched when a cancel empties a level.
 
-Modify went from about 750 ns to 9 ns and cancel from about 750 ns to under 200 ns. Add got about
-20% slower because `OrderLocation` went from 24 to 32 bytes.
+Modify went from about 600 ns to 9 ns and cancel from about 650 ns to under 100 ns. Add got about
+15% slower because `OrderLocation` went from 24 to 32 bytes.
+
+## Order pool
+
+Each level used to be a `std::list<Order>`. Its iterators stay valid when other elements are added or
+removed, which is what `OrderLocation` needed, but it costs an allocation on every add and a free on
+every cancel.
+
+Now all orders are in one `std::vector<Node>` and each level's queue goes through `next`/`prev`
+fields. Those are `int32_t` indices, not pointers, so the vector can reallocate without breaking
+anything. Cancelled slots go on a free list and get reused.
+
+Add got faster and p99.9 dropped to about half. Cancel got slower than with the list, and p50 barely
+moved, so this is mostly a tail latency change.
+
+`Node` is only id, quantity and the two links, 24 bytes. Price is already known from the level and
+side from the location. Putting a whole `Order` in it would make it 40 bytes, and a cancel reads
+three nodes that are usually far apart.
