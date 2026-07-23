@@ -110,6 +110,21 @@ TEST_CASE("stored level stays valid as other levels are added and erased", "[ord
     REQUIRE(book.bestBid() == std::nullopt);
 }
 
+TEST_CASE("adding a duplicate order id is rejected and changes nothing", "[order_book]") {
+    OrderBook book;
+    REQUIRE(book.addLimitOrder({.id = 1, .side = Side::Buy, .price = 100, .quantity = 10}));
+    REQUIRE_FALSE(book.addLimitOrder({.id = 1, .side = Side::Buy, .price = 100, .quantity = 7}));
+
+    REQUIRE(book.size() == 1);
+    REQUIRE(book.quantityAt(Side::Buy, 100) == 10);
+    REQUIRE(book.ordersAt(Side::Buy, 100) == std::vector<OrderId>{1});
+
+    REQUIRE(book.cancelOrder(1));
+    REQUIRE(book.size() == 0);
+    REQUIRE(book.quantityAt(Side::Buy, 100) == 0);
+    REQUIRE(book.bestBid() == std::nullopt);
+}
+
 TEST_CASE("bids and asks on the same price level do not interfere", "[order_book]") {
     OrderBook book;
     book.addLimitOrder({.id = 1, .side = Side::Buy, .price = 100, .quantity = 10});

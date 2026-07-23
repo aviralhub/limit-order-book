@@ -17,7 +17,8 @@ class OrderBook {
 public:
     explicit OrderBook(std::size_t capacity = 1 << 16);
 
-    void addLimitOrder(const Order& order);
+    // false if the id is already resting, the book is left as it was
+    bool addLimitOrder(const Order& order);
 
     // false if the id isn't in the book
     bool cancelOrder(OrderId id);

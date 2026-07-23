@@ -20,7 +20,14 @@ std::int32_t OrderBook::allocate(const Order& order) {
 
 void OrderBook::release(std::int32_t node) { free_list_.push_back(node); }
 
-void OrderBook::addLimitOrder(const Order& order) {
+// The id goes into the index first so a duplicate is rejected before
+// anything gets linked.
+bool OrderBook::addLimitOrder(const Order& order) {
+    auto [loc_it, inserted] = locations_.try_emplace(order.id);
+    if (!inserted) {
+        return false;
+    }
+
     PriceLevel& level = (order.side == Side::Buy) ? bids_[order.price] : asks_[order.price];
 
     const std::int32_t idx = allocate(order);
@@ -33,7 +40,8 @@ void OrderBook::addLimitOrder(const Order& order) {
     level.tail = idx;
     level.total_quantity += order.quantity;
 
-    locations_.emplace(order.id, OrderLocation{order.side, order.price, &level, idx});
+    loc_it->second = OrderLocation{order.side, order.price, &level, idx};
+    return true;
 }
 
 bool OrderBook::cancelOrder(OrderId id) {

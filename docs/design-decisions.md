@@ -44,3 +44,13 @@ moved, so this is mostly a tail latency change.
 `Node` is only id, quantity and the two links, 24 bytes. Price is already known from the level and
 side from the location. Putting a whole `Order` in it would make it 40 bytes, and a cancel reads
 three nodes that are usually far apart.
+
+## Duplicate ids
+
+`addLimitOrder` used to link the order into its level first and insert into `locations_` after. If
+the id was already resting, the insert did nothing and the new order was left in the queue with no
+id pointing at it. `size()` was then wrong, and cancelling the original id left a level that still
+had depth and still showed up as the best bid. A randomised test against a simple model found it.
+
+The index insert now happens first and `addLimitOrder` returns false for a duplicate. `try_emplace`
+tells you whether the key was new from the same lookup, so the check doesn't cost an extra probe.
