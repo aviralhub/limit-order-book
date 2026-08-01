@@ -17,4 +17,14 @@ struct Order {
     Quantity quantity;
 };
 
+// price is the resting (maker) order's price
+struct Trade {
+    OrderId maker_id;
+    OrderId taker_id;
+    Price price;
+    Quantity quantity;
+
+    bool operator==(const Trade&) const = default;
+};
+
 } // namespace orderbook

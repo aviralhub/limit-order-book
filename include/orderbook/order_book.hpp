@@ -12,7 +12,7 @@
 
 namespace orderbook {
 
-// Resting orders only, nothing is matched here.
+// Resting orders only. MatchingEngine does the crossing.
 class OrderBook {
 public:
     explicit OrderBook(std::size_t capacity = 1 << 16);
@@ -33,6 +33,9 @@ public:
 
     // oldest first
     std::vector<OrderId> ordersAt(Side side, Price price) const;
+
+    // oldest order at the best price
+    std::optional<Order> front(Side side) const;
 
     bool hasOrder(OrderId id) const { return locations_.contains(id); }
     std::size_t size() const { return locations_.size(); }
@@ -86,6 +89,9 @@ private:
 
     template <typename Levels>
     std::vector<OrderId> ordersAtIn(const Levels& levels, Price price) const;
+
+    template <typename Levels>
+    std::optional<Order> frontIn(const Levels& levels, Side side) const;
 };
 
 } // namespace orderbook

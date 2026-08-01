@@ -121,6 +121,16 @@ std::vector<OrderId> OrderBook::ordersAtIn(const Levels& levels, Price price) co
     return ids;
 }
 
+template <typename Levels>
+std::optional<Order> OrderBook::frontIn(const Levels& levels, Side side) const {
+    if (levels.empty()) {
+        return std::nullopt;
+    }
+    const auto& [price, level] = *levels.begin();
+    const Node& node = nodes_[static_cast<std::size_t>(level.head)];
+    return Order{node.id, side, price, node.quantity};
+}
+
 std::optional<Price> OrderBook::bestBid() const { return bestPrice(bids_); }
 
 std::optional<Price> OrderBook::bestAsk() const { return bestPrice(asks_); }
@@ -131,6 +141,10 @@ Quantity OrderBook::quantityAt(Side side, Price price) const {
 
 std::vector<OrderId> OrderBook::ordersAt(Side side, Price price) const {
     return side == Side::Buy ? ordersAtIn(bids_, price) : ordersAtIn(asks_, price);
+}
+
+std::optional<Order> OrderBook::front(Side side) const {
+    return side == Side::Buy ? frontIn(bids_, Side::Buy) : frontIn(asks_, Side::Sell);
 }
 
 } // namespace orderbook

@@ -1,3 +1,4 @@
+#include "orderbook/matching_engine.hpp"
 #include "orderbook/order_book.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -70,6 +71,34 @@ struct Model {
         return ids;
     }
 
+    // scans for the best crossing order every time
+    bool submit(Order order, std::vector<Trade>& trades) {
+        if (order.quantity == 0 || find(order.id) != orders.end()) {
+            return false;
+        }
+        const Side other = order.side == Side::Buy ? Side::Sell : Side::Buy;
+        while (order.quantity > 0) {
+            const std::optional<Price> price = best(other);
+            if (!price || (order.side == Side::Buy ? order.price < *price : order.price > *price)) {
+                break;
+            }
+            auto maker = std::find_if(orders.begin(), orders.end(), [&](const Order& o) {
+                return o.side == other && o.price == *price;
+            });
+            const Quantity fill = std::min(order.quantity, maker->quantity);
+            trades.push_back(Trade{maker->id, order.id, maker->price, fill});
+            order.quantity -= fill;
+            maker->quantity -= fill;
+            if (maker->quantity == 0) {
+                orders.erase(maker);
+            }
+        }
+        if (order.quantity > 0) {
+            orders.push_back(order);
+        }
+        return true;
+    }
+
     std::vector<Order>::iterator find(OrderId id) {
         return std::find_if(orders.begin(), orders.end(), [id](const Order& o) { return o.id == id; });
     }
@@ -106,6 +135,48 @@ TEST_CASE("random adds, cancels and modifies match a simple model", "[randomised
         REQUIRE(book.size() == model.orders.size());
         REQUIRE(book.bestBid() == model.best(Side::Buy));
         REQUIRE(book.bestAsk() == model.best(Side::Sell));
+
+        const Price p = price(rng);
+        const Side s = side(rng) == 0 ? Side::Buy : Side::Sell;
+        REQUIRE(book.quantityAt(s, p) == model.quantityAt(s, p));
+        REQUIRE(book.ordersAt(s, p) == model.ordersAt(s, p));
+    }
+}
+
+TEST_CASE("random submits and cancels match a simple model", "[randomised]") {
+    std::mt19937 rng(11);
+    std::uniform_int_distribution<int> op(0, 9);
+    std::uniform_int_distribution<Price> price(95, 105);
+    std::uniform_int_distribution<Quantity> quantity(0, 50);
+    std::uniform_int_distribution<int> side(0, 1);
+
+    MatchingEngine engine(16);
+    Model model;
+    OrderId next_id = 0;
+
+    for (int i = 0; i < 20000; ++i) {
+        const int roll = op(rng);
+        std::uniform_int_distribution<OrderId> used(1, next_id + 1);
+        if (roll < 7) {
+            // mostly new ids, sometimes an old one that may still be resting
+            const OrderId id = roll == 0 ? used(rng) : ++next_id;
+            Order o{id, side(rng) == 0 ? Side::Buy : Side::Sell, price(rng), quantity(rng)};
+            std::vector<Trade> got;
+            std::vector<Trade> expected;
+            REQUIRE(engine.submit(o, got) == model.submit(o, expected));
+            REQUIRE(got == expected);
+        } else {
+            const OrderId id = used(rng);
+            REQUIRE(engine.cancel(id) == model.cancel(id));
+        }
+
+        const OrderBook& book = engine.book();
+        REQUIRE(book.size() == model.orders.size());
+        REQUIRE(book.bestBid() == model.best(Side::Buy));
+        REQUIRE(book.bestAsk() == model.best(Side::Sell));
+        if (book.bestBid() && book.bestAsk()) {
+            REQUIRE(*book.bestBid() < *book.bestAsk());
+        }
 
         const Price p = price(rng);
         const Side s = side(rng) == 0 ? Side::Buy : Side::Sell;

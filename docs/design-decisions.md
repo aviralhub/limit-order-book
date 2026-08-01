@@ -54,3 +54,18 @@ had depth and still showed up as the best bid. A randomised test against a simpl
 
 The index insert now happens first and `addLimitOrder` returns false for a duplicate. `try_emplace`
 tells you whether the key was new from the same lookup, so the check doesn't cost an extra probe.
+
+## Matching
+
+`MatchingEngine` sits on top of `OrderBook` and only uses its public functions, so the book itself
+stays a plain data structure and its benchmark still measures the same thing.
+
+`submit` looks at `front()` of the other side, the oldest order at the best price. While that
+crosses, it trades the smaller of the two quantities at the resting order's price. A resting order
+that fills completely is cancelled out of the book. One that fills partly goes through
+`modifyOrder`, which keeps its place at the front of the queue. The loop reads `front()` again every
+time, so it never holds on to a level that a cancel might have just erased.
+
+Things it doesn't do: market orders (a limit at an extreme price does the same job), self-trade
+prevention, since orders don't have an owner, and remembering ids that have fully filled. The
+duplicate check only covers orders that are resting.

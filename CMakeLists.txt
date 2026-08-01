@@ -16,6 +16,7 @@ set(CMAKE_EXE_LINKER_FLAGS_DEBUG "-fsanitize=address,undefined")
 
 add_library(orderbook STATIC
   src/order_book.cpp
+  src/matching_engine.cpp
 )
 target_include_directories(orderbook PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
