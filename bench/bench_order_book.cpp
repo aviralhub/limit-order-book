@@ -1,7 +1,9 @@
+#include "orderbook/matching_engine.hpp"
 #include "orderbook/order_book.hpp"
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -15,12 +17,14 @@
 
 namespace {
 
+using orderbook::MatchingEngine;
 using orderbook::Order;
 using orderbook::OrderBook;
 using orderbook::OrderId;
 using orderbook::Price;
 using orderbook::Quantity;
 using orderbook::Side;
+using orderbook::Trade;
 
 using Clock = std::chrono::steady_clock;
 
@@ -46,6 +50,14 @@ constexpr Quantity kMaxQuantity = 500;
 constexpr int kAddWeight = 45;
 constexpr int kCancelWeight = 45;
 constexpr int kModifyWeight = 10;
+
+// matching run: resting buys sit below the mid and sells above it, and a
+// crossing submit is priced a little through the mid on the other side
+constexpr Price kMid = 30000;
+constexpr Price kCrossTicks = 20;
+constexpr int kPassiveWeight = 42;
+constexpr int kCrossingWeight = 10;
+constexpr int kEngineCancelWeight = 48;
 
 enum class OpKind { Add, Cancel, Modify };
 
@@ -176,14 +188,23 @@ void run(OrderBook& book, const Op& op) {
     }
 }
 
-} // namespace
+Order passive_order(std::mt19937& rng, OrderId id) {
+    std::normal_distribution<double> offset(0.0, kPriceStdDev);
+    std::uniform_int_distribution<Quantity> quantity(kMinQuantity, kMaxQuantity);
+    std::uniform_int_distribution<int> side(0, 1);
+    const Side s = side(rng) == 0 ? Side::Buy : Side::Sell;
+    const Price away = 1 + static_cast<Price>(std::abs(offset(rng)));
+    return Order{id, s, s == Side::Buy ? kMid - away : kMid + away, quantity(rng)};
+}
 
-int main(int argc, char** argv) {
-    const int core = argc > 1 ? std::atoi(argv[1]) : -1;
-    const bool pinned = core >= 0 && pin_to_core(core);
-    const double cycles_per_ns = calibrate_tsc();
-    const std::uint64_t overhead = tsc_overhead();
+Order crossing_order(std::mt19937& rng, OrderId id) {
+    std::uniform_int_distribution<Quantity> quantity(kMinQuantity, kMaxQuantity);
+    std::uniform_int_distribution<int> side(0, 1);
+    const Side s = side(rng) == 0 ? Side::Buy : Side::Sell;
+    return Order{id, s, s == Side::Buy ? kMid + kCrossTicks : kMid - kCrossTicks, quantity(rng)};
+}
 
+void bench_book(double cycles_per_ns) {
     std::mt19937 rng(kSeed);
     std::vector<OrderId> live;
     OrderId next_id = 1;
@@ -241,13 +262,6 @@ int main(int argc, char** argv) {
     const double seconds = std::chrono::duration<double>(wall_end - wall_start).count();
     std::printf("%zu resting orders, %zu measured ops (%d%% add, %d%% cancel, %d%% modify)\n",
                 kRestingOrders, kMeasuredOps, kAddWeight, kCancelWeight, kModifyWeight);
-    std::printf("rdtsc %.3f cycles/ns, timer overhead %llu cycles (included)\n", cycles_per_ns,
-                static_cast<unsigned long long>(overhead));
-    if (pinned) {
-        std::printf("pinned to core %d\n", core);
-    } else {
-        std::printf("not pinned\n");
-    }
     std::printf("%.0f ops/sec, %zu orders left\n\n", static_cast<double>(kMeasuredOps) / seconds,
                 book.size());
 
@@ -257,4 +271,87 @@ int main(int argc, char** argv) {
     report("modify", samples[2]);
     report("all", all);
     histogram(all);
+}
+
+void bench_engine(double cycles_per_ns) {
+    std::mt19937 rng(kSeed);
+    std::vector<OrderId> live;
+    OrderId next_id = 1;
+    MatchingEngine engine;
+    std::vector<Trade> trades;
+    trades.reserve(1024);
+
+    for (std::size_t i = 0; i < kRestingOrders; ++i) {
+        Order order = passive_order(rng, next_id++);
+        engine.submit(order, trades);
+        live.push_back(order.id);
+    }
+
+    // Cancels pick from every id submitted so far, so some of them hit orders
+    // that already filled. Only submits are timed.
+    std::uniform_int_distribution<int> mix(1, kPassiveWeight + kCrossingWeight + kEngineCancelWeight);
+    std::vector<Op> plan;
+    plan.reserve(kMeasuredOps);
+    for (std::size_t i = 0; i < kMeasuredOps; ++i) {
+        const int roll = mix(rng);
+        if (roll <= kPassiveWeight || live.empty()) {
+            plan.push_back(Op{OpKind::Add, passive_order(rng, next_id), 0, 0});
+            live.push_back(next_id++);
+        } else if (roll <= kPassiveWeight + kCrossingWeight) {
+            plan.push_back(Op{OpKind::Add, crossing_order(rng, next_id), 0, 0});
+            live.push_back(next_id++);
+        } else {
+            std::uniform_int_distribution<std::size_t> pick(0, live.size() - 1);
+            const std::size_t slot = pick(rng);
+            plan.push_back(Op{OpKind::Cancel, Order{}, live[slot], 0});
+            live[slot] = live.back();
+            live.pop_back();
+        }
+    }
+
+    std::vector<std::int64_t> rested;
+    std::vector<std::int64_t> filled;
+    std::size_t trade_count = 0;
+    for (const Op& op : plan) {
+        if (op.kind == OpKind::Cancel) {
+            engine.cancel(op.target);
+            continue;
+        }
+        trades.clear();
+        const std::uint64_t t0 = tsc_now();
+        engine.submit(op.order, trades);
+        const std::uint64_t t1 = tsc_now();
+        const auto ns = static_cast<std::int64_t>(static_cast<double>(t1 - t0) / cycles_per_ns);
+        (trades.empty() ? rested : filled).push_back(ns);
+        trade_count += trades.size();
+    }
+
+    std::printf("\nmatching: %zu resting orders, %zu ops (%d%% passive submit, %d%% crossing "
+                "submit, %d%% cancel)\n",
+                kRestingOrders, kMeasuredOps, kPassiveWeight, kCrossingWeight,
+                kEngineCancelWeight);
+    std::printf("%zu trades, %zu orders left\n\n", trade_count, engine.book().size());
+    std::printf("submit       count     p50     p99   p99.9       max  (ns)\n");
+    report("no fill", rested);
+    report("fills", filled);
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    const int core = argc > 1 ? std::atoi(argv[1]) : -1;
+    const bool pinned = core >= 0 && pin_to_core(core);
+    const double cycles_per_ns = calibrate_tsc();
+    const std::uint64_t overhead = tsc_overhead();
+
+    std::printf("rdtsc %.3f cycles/ns, timer overhead %llu cycles (included)\n", cycles_per_ns,
+                static_cast<unsigned long long>(overhead));
+    if (pinned) {
+        std::printf("pinned to core %d\n\n", core);
+    } else {
+        std::printf("not pinned\n\n");
+    }
+
+    bench_book(cycles_per_ns);
+    bench_engine(cycles_per_ns);
 }

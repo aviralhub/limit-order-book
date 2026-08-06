@@ -66,6 +66,20 @@ p99.9 is what improved most, and that's the reason for keeping it.
 Numbers move by 20% or more between sessions, so only runs from the same session are compared.
 Pinning to a core didn't change much under WSL2.
 
+The second half of the run goes through `MatchingEngine`. It starts with 100k resting orders, buys
+below 30000 and sells above, then does 1M operations: 42% submits priced away from the mid that
+rest, 10% priced 20 ticks through the mid that trade, and 48% cancels. Medians of 10 runs, in ns:
+
+| submit | count | p50 | p99 | p99.9 |
+|---|---:|---:|---:|---:|
+| no fill | 468681 | 242 | 994 | 1965 |
+| fills | 50767 | 82 | 698 | 1322 |
+
+A submit that trades is cheaper than one that rests, even with about two trades each. It works on
+the front of the best level, which is already in cache, and usually fills completely, so nothing
+gets added. One that rests lands somewhere deeper in the book and has to find or create its level
+and insert into the hash map.
+
 ## Layout
 
 ```
