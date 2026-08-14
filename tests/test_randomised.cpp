@@ -16,7 +16,7 @@ struct Model {
     std::vector<Order> orders; // in arrival order
 
     bool add(const Order& order) {
-        if (find(order.id) != orders.end()) {
+        if (order.quantity == 0 || find(order.id) != orders.end()) {
             return false;
         }
         orders.push_back(order);
@@ -37,7 +37,11 @@ struct Model {
         if (it == orders.end()) {
             return false;
         }
-        it->quantity = quantity;
+        if (quantity == 0) {
+            orders.erase(it);
+        } else {
+            it->quantity = quantity;
+        }
         return true;
     }
 
@@ -112,7 +116,7 @@ TEST_CASE("random adds, cancels and modifies match a simple model", "[randomised
     // small ranges so ids collide and levels fill up and empty often
     std::uniform_int_distribution<OrderId> id(1, 300);
     std::uniform_int_distribution<Price> price(95, 105);
-    std::uniform_int_distribution<Quantity> quantity(1, 50);
+    std::uniform_int_distribution<Quantity> quantity(0, 50);
     std::uniform_int_distribution<int> side(0, 1);
 
     OrderBook book(16);

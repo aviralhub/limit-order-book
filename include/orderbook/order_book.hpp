@@ -17,13 +17,13 @@ class OrderBook {
 public:
     explicit OrderBook(std::size_t capacity = 1 << 16);
 
-    // false if the id is already resting, the book is left as it was
+    // false for a zero quantity or an id that's already resting
     bool addLimitOrder(const Order& order);
 
     // false if the id isn't in the book
     bool cancelOrder(OrderId id);
 
-    // keeps the order's place in the queue
+    // keeps the order's place in the queue, a quantity of 0 cancels it
     bool modifyOrder(OrderId id, Quantity new_quantity);
 
     std::optional<Price> bestBid() const;

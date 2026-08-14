@@ -89,3 +89,6 @@ tests/               Catch2 tests
 bench/               latency benchmark
 docs/                design notes
 ```
+
+Next: replace the maps with a flat array of levels over a fixed tick range, plus a bitmap of the
+non-empty ones, so finding the best price is a bit scan instead of a tree walk.

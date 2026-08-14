@@ -23,6 +23,9 @@ void OrderBook::release(std::int32_t node) { free_list_.push_back(node); }
 // The id goes into the index first so a duplicate is rejected before
 // anything gets linked.
 bool OrderBook::addLimitOrder(const Order& order) {
+    if (order.quantity == 0) {
+        return false;
+    }
     auto [loc_it, inserted] = locations_.try_emplace(order.id);
     if (!inserted) {
         return false;
@@ -80,6 +83,9 @@ bool OrderBook::cancelOrder(OrderId id) {
 }
 
 bool OrderBook::modifyOrder(OrderId id, Quantity new_quantity) {
+    if (new_quantity == 0) {
+        return cancelOrder(id);
+    }
     auto loc_it = locations_.find(id);
     if (loc_it == locations_.end()) {
         return false;

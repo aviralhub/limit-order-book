@@ -72,6 +72,19 @@ TEST_CASE("modifying an order's quantity updates the level total", "[order_book]
     REQUIRE(book.quantityAt(Side::Sell, 100) == 8);
 }
 
+TEST_CASE("zero quantity never rests", "[order_book]") {
+    OrderBook book;
+    REQUIRE_FALSE(book.addLimitOrder({.id = 3, .side = Side::Buy, .price = 100, .quantity = 0}));
+    book.addLimitOrder({.id = 1, .side = Side::Buy, .price = 100, .quantity = 10});
+    book.addLimitOrder({.id = 2, .side = Side::Buy, .price = 101, .quantity = 5});
+
+    REQUIRE(book.modifyOrder(2, 0));
+    REQUIRE_FALSE(book.hasOrder(2));
+    REQUIRE(book.size() == 1);
+    REQUIRE(book.bestBid() == 100);
+    REQUIRE(book.quantityAt(Side::Buy, 101) == 0);
+}
+
 TEST_CASE("modifying an unknown order id fails cleanly", "[order_book]") {
     OrderBook book;
     REQUIRE_FALSE(book.modifyOrder(999, 5));

@@ -38,8 +38,8 @@ Now all orders are in one `std::vector<Node>` and each level's queue goes throug
 fields. Those are `int32_t` indices, not pointers, so the vector can reallocate without breaking
 anything. Cancelled slots go on a free list and get reused.
 
-Add got faster and p99.9 dropped to about half. Cancel got slower than with the list, and p50 barely
-moved, so this is mostly a tail latency change.
+Add got faster and p99.9 dropped to about half. Cancel got slower than it was right before this
+change and p50 only improved about 10%, so this is mostly a tail latency change.
 
 `Node` is only id, quantity and the two links, 24 bytes. Price is already known from the level and
 side from the location. Putting a whole `Order` in it would make it 40 bytes, and a cancel reads
@@ -54,6 +54,19 @@ had depth and still showed up as the best bid. A randomised test against a simpl
 
 The index insert now happens first and `addLimitOrder` returns false for a duplicate. `try_emplace`
 tells you whether the key was new from the same lookup, so the check doesn't cost an extra probe.
+
+## Modify
+
+`modifyOrder` changes the quantity in place and the order keeps its place in the queue. That's what
+exchanges do for a decrease. For an increase most of them send the order to the back, since
+otherwise you could hold a spot in the queue with a small order and grow it later. Here it keeps its
+place either way.
+
+A modify to 0 used to leave an order with no quantity sitting in the queue and counted by `size()`.
+It's a cancel now, and adding an order with quantity 0 is rejected.
+
+Level totals are `uint32_t` like order quantities, so a single level holding more than about 4
+billion would wrap.
 
 ## Matching
 
